@@ -167,11 +167,12 @@
       field('Customer', customerSelect('f_customer', j.customerId)) +
       field('Address', inp('f_address', j.address, 'Street address')) +
       field('Date', inp('f_date', j.date || todayStr(), '', 'date')) +
-      field('Time', inp('f_time', j.time, 'e.g. 9:00 AM')) +
+      field('Time', inp('f_time', j.time, '09:00', 'time')) +
       field('Price ($)', inp('f_price', j.price, '0', 'number')) +
       field('Status', statusSelect('f_status', j.status || 'scheduled', ['scheduled', 'in-progress', 'done'])) +
       field('Notes', '<textarea id="f_notes">' + esc(j.notes) + '</textarea>') +
-      formBtns('MF.saveJob', j.id));
+      formBtns('MF.saveJob', j.id) +
+      (j.id ? '<button class="btn secondary" onclick="MF.cal(\'' + j.id + '\')">📅 Add to iPhone Calendar</button>' : ''));
   }
 
   function quoteForm(q) {
@@ -206,6 +207,37 @@
   function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
   function currentTab() { var a = document.querySelector('#tabs button.active'); return a ? a.dataset.tab : 'today'; }
 
+  /* ---------- Add to iPhone Calendar (.ics) ---------- */
+  function parseTime(t) {
+    var m = String(t || '09:00').trim().match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!m) return '090000';
+    var h = +m[1], ap = (m[3] || '').toUpperCase();
+    if (ap === 'PM' && h < 12) h += 12;
+    if (ap === 'AM' && h === 12) h = 0;
+    return String(h).padStart(2, '0') + m[2] + '00';
+  }
+  function icsEsc(s) { return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
+  function icsFor(j) {
+    if (!j.date) return null;
+    var d = j.date.replace(/-/g, '');
+    var t0 = parseTime(j.time);
+    var h = +t0.slice(0, 2);
+    var t1 = String((h + 1) % 24).padStart(2, '0') + t0.slice(2);
+    var stamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    var cname = custName(j.customerId);
+    var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Miami Fixes HQ//EN', 'BEGIN:VEVENT',
+      'UID:' + j.id + '@miamifixeshq',
+      'DTSTAMP:' + stamp,
+      'DTSTART;TZID=America/New_York:' + d + 'T' + t0,
+      'DTEND;TZID=America/New_York:' + d + 'T' + t1,
+      'SUMMARY:' + icsEsc((j.title || 'Job') + ' — ' + cname),
+      'LOCATION:' + icsEsc(j.address || ''),
+      'DESCRIPTION:' + icsEsc([cname && ('Customer: ' + cname), j.price && ('Price: ' + money(j.price)), j.notes && ('Notes: ' + j.notes)].filter(Boolean).join('\n')),
+      'BEGIN:VALARM', 'TRIGGER:-PT30M', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsEsc('Miami Fixes: ' + (j.title || 'Job')), 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR'];
+    return lines.join('\r\n');
+  }
+
   window.MF = {
     close: closeSheet,
     newJob: function () { jobForm(); },
@@ -223,6 +255,19 @@
       if (!confirm('Delete this job?')) return;
       DB.jobs = DB.jobs.filter(function (j) { return j.id !== id; });
       persist(); closeSheet(); render(currentTab()); toast('Job deleted');
+    },
+    cal: function (id) {
+      var j = DB.jobs.find(function (x) { return x.id === id; });
+      if (!j) return;
+      if (!j.date) { toast('Set a date first'); return; }
+      var ics = icsFor(j);
+      var blob = new Blob([ics], { type: 'text/calendar' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'job-' + j.date + '.ics';
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 800);
+      toast('Open the file to add it to your calendar');
     },
     newQuote: function () { quoteForm(); },
     editQuote: function (id) { quoteForm(DB.quotes.find(function (q) { return q.id === id; })); },
