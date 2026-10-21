@@ -14,7 +14,6 @@
     var p = ds.split('-'); var d = new Date(+p[0], +p[1] - 1, +p[2]);
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
 
-  /* ---------- store ---------- */
   function seed() {
     var c1 = uid('c');
     return {
@@ -34,11 +33,11 @@
     try { var raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {}
     var s = seed(); save(s); return s;
   }
-  function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { toast('Storage full — export a backup!'); } }
+  function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); }
+    catch (e) { toast('Storage full — export a backup!'); } }
   var DB = load();
   function persist() { save(DB); }
 
-  /* ---------- ui helpers ---------- */
   var screen = document.getElementById('screen');
   function toast(msg) { var t = document.getElementById('toast');
     t.textContent = msg; t.classList.remove('hidden');
@@ -57,7 +56,6 @@
     return c ? c.name : '—'; }
   function quoteTotal(q) { return q.items.reduce(function (s, it) { return s + (Number(it.amount) || 0); }, 0); }
 
-  /* ---------- tabs ---------- */
   var tabBtns = document.querySelectorAll('#tabs button');
   tabBtns.forEach(function (b) { b.addEventListener('click', function () {
     tabBtns.forEach(function (x) { x.classList.remove('active'); });
@@ -68,10 +66,12 @@
 
   function render(tab) {
     window.scrollTo(0, 0);
-    ({ today: renderToday, jobs: renderJobs, quotes: renderQuotes, customers: renderCustomers })[tab]();
+    if (tab === 'today') renderToday();
+    else if (tab === 'jobs') renderJobs();
+    else if (tab === 'quotes') renderQuotes();
+    else renderCustomers();
   }
 
-  /* ---------- TODAY ---------- */
   function renderToday() {
     var t = todayStr();
     var todays = DB.jobs.filter(function (j) { return j.date === t && j.status !== 'done'; });
@@ -80,34 +80,27 @@
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; }).slice(0, 5);
     var openQuotes = DB.quotes.filter(function (q) { return q.status === 'sent' || q.status === 'draft'; });
     var h = '';
-    if (overdue.length) {
-      h += '<div class="section-title">⚠️ Overdue (' + overdue.length + ')</div>';
-      h += overdue.map(jobCard).join('');
-    }
-    h += '<div class="section-title">📋 Today (' + todays.length + ')</div>';
+    if (overdue.length) h += '<div class="section-title">Overdue (' + overdue.length + ')</div>' + overdue.map(jobCard).join('');
+    h += '<div class="section-title">Today (' + todays.length + ')</div>';
     h += todays.length ? todays.map(jobCard).join('') : '<div class="card muted">Nothing scheduled today.</div>';
-    if (upcoming.length) {
-      h += '<div class="section-title">🔜 Coming up</div>' + upcoming.map(jobCard).join('');
-    }
-    h += '<div class="section-title">📊 At a glance</div><div class="card"><div class="row"><span>Open quotes</span><b>' +
-      openQuotes.length + '</b></div><div class="row"><span>Customers</span><b>' +
-      DB.customers.length + '</b></div></div>';
+    if (upcoming.length) h += '<div class="section-title">Coming up</div>' + upcoming.map(jobCard).join('');
+    h += '<div class="section-title">At a glance</div><div class="card"><div class="row"><span>Open quotes</span><b>' +
+      openQuotes.length + '</b></div><div class="row"><span>Customers</span><b>' + DB.customers.length +
+      '</b></div></div>';
     h += '<button class="btn" onclick="MF.newJob()">+ New Job</button>';
-    h += '<button class="btn secondary" onclick="MF.backup()">⬇ Backup / Restore</button>';
+    h += '<button class="btn secondary" onclick="MF.backupSheet()">Backup / Restore</button>';
     screen.innerHTML = h;
   }
   function jobCard(j) {
     var over = j.date && j.date < todayStr() && j.status !== 'done';
     return '<div class="card" onclick="MF.editJob(\'' + j.id + '\')">' +
       '<div class="row"><h3>' + esc(j.title || 'Job') + '</h3>' +
-      '<span class="pill ' + (over ? 'overdue' : j.status) + '">' + (over ? 'overdue' : j.status.replace('-', ' ')) + '</span></div>' +
-      '<div class="muted">' + esc(custName(j.customerId)) + ' · ' + fmtDate(j.date) + (j.time ? ' ' + esc(j.time) : '') + '</div>' +
+      '<span class="pill ' + (over ? 'overdue' : j.status) + '">' + (over ? 'overdue' : String(j.status).replace('-', ' ')) + '</span></div>' +
+      '<div class="muted">' + esc(custName(j.customerId)) + ' - ' + fmtDate(j.date) + (j.time ? ' ' + esc(j.time) : '') + '</div>' +
       (j.price ? '<div class="money">' + money(j.price) + '</div>' : '') + '</div>';
   }
 
-  /* ---------- JOBS ---------- */
   function renderJobs() {
-    var t = todayStr();
     var open = DB.jobs.filter(function (j) { return j.status !== 'done'; })
       .sort(function (a, b) { return (a.date || '9999') < (b.date || '9999') ? -1 : 1; });
     var done = DB.jobs.filter(function (j) { return j.status === 'done'; }).slice(-20).reverse();
@@ -118,7 +111,6 @@
     screen.innerHTML = h;
   }
 
-  /* ---------- QUOTES ---------- */
   function renderQuotes() {
     var h = '<button class="btn" onclick="MF.newQuote()">+ New Quote</button>';
     var sorted = DB.quotes.slice().sort(function (a, b) { return a.created < b.created ? 1 : -1; });
@@ -126,39 +118,46 @@
       return '<div class="card" onclick="MF.editQuote(\'' + q.id + '\')">' +
         '<div class="row"><h3>' + esc(q.title || 'Quote') + '</h3>' +
         '<span class="pill ' + q.status + '">' + q.status + '</span></div>' +
-        '<div class="muted">' + esc(custName(q.customerId)) + ' · ' + fmtDate(q.created) + '</div>' +
+        '<div class="muted">' + esc(custName(q.customerId)) + ' - ' + fmtDate(q.created) + '</div>' +
         '<div class="money">' + money(quoteTotal(q)) + '</div></div>';
     }).join('') : '<div class="card muted">No quotes yet.</div>';
     screen.innerHTML = h;
   }
 
-  /* ---------- CUSTOMERS ---------- */
   function renderCustomers() {
     var h = '<button class="btn" onclick="MF.newCustomer()">+ New Customer</button>';
     var sorted = DB.customers.slice().sort(function (a, b) {
       return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1; });
     h += sorted.length ? sorted.map(function (c) {
       var jobs = DB.jobs.filter(function (j) { return j.customerId === c.id; }).length;
+      var tel = c.phone ? c.phone.replace(/[^+\d]/g, '') : '';
       return '<div class="card" onclick="MF.editCustomer(\'' + c.id + '\')">' +
         '<h3>' + esc(c.name) + '</h3>' +
-        (c.phone ? '<div><a class="tel" href="tel:' + esc(c.phone.replace(/[^+\d]/g, '')) +
-          '" onclick="event.stopPropagation()">' + esc(c.phone) + '</a></div>' : '') +
+        (c.phone ? '<div><a class="tel" href="tel:' + esc(tel) + '" onclick="event.stopPropagation()">' + esc(c.phone) + '</a></div>' : '') +
         (c.address ? '<div class="muted">' + esc(c.address) + '</div>' : '') +
         '<div class="muted">' + jobs + ' job' + (jobs === 1 ? '' : 's') + '</div></div>';
     }).join('') : '<div class="card muted">No customers yet.</div>';
     screen.innerHTML = h;
   }
 
-  /* ---------- forms ---------- */
   function field(label, inner) { return '<label>' + label + '</label>' + inner; }
   function inp(id, val, ph, type) {
     return '<input id="' + id + '" type="' + (type || 'text') + '" value="' + esc(val || '') +
       '" placeholder="' + esc(ph || '') + '">'; }
   function customerSelect(id, val) {
-    var h = '<select id="' + id + '"><option value="">— pick —</option>';
+    var h = '<select id="' + id + '"><option value="">- pick -</option>';
     DB.customers.forEach(function (c) {
       h += '<option value="' + c.id + '"' + (c.id === val ? ' selected' : '') + '>' + esc(c.name) + '</option>'; });
     return h + '</select>';
+  }
+  function statusSelect(id, val, opts) {
+    return '<select id="' + id + '">' + opts.map(function (s) {
+      return '<option value="' + s + '"' + (val === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>';
+  }
+  function formBtns(saveFn, id) {
+    return '<div class="btn-row"><button class="btn" onclick="' + saveFn + '(\'' + (id || '') + '\')">Save</button>' +
+      (id ? '<button class="btn danger" onclick="' + saveFn.replace('save', 'del') + '(\'' + id + '\')">Delete</button>' : '') +
+      '</div><button class="btn secondary" onclick="MF.close()">Cancel</button>';
   }
 
   function jobForm(j) {
@@ -170,12 +169,9 @@
       field('Date', inp('f_date', j.date || todayStr(), '', 'date')) +
       field('Time', inp('f_time', j.time, 'e.g. 9:00 AM')) +
       field('Price ($)', inp('f_price', j.price, '0', 'number')) +
-      field('Status', '<select id="f_status">' + ['scheduled', 'in-progress', 'done'].map(function (s) {
-        return '<option' + (j.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>') +
+      field('Status', statusSelect('f_status', j.status || 'scheduled', ['scheduled', 'in-progress', 'done'])) +
       field('Notes', '<textarea id="f_notes">' + esc(j.notes) + '</textarea>') +
-      '<div class="btn-row"><button class="btn" onclick="MF.saveJob(\'' + (j.id || '') + '\')">Save</button>' +
-      (j.id ? '<button class="btn danger" onclick="MF.delJob(\'' + j.id + '\')">Delete</button>' : '') + '</div>' +
-      '<button class="btn secondary" onclick="MF.close()">Cancel</button>');
+      formBtns('MF.saveJob', j.id));
   }
 
   function quoteForm(q) {
@@ -189,18 +185,121 @@
       field('Customer', customerSelect('f_customer', q.customerId)) +
       field('Line items', '<div id="f_items">' + itemsHtml + '</div>' +
         '<button class="btn small secondary" onclick="MF.addItem()">+ Add line</button>') +
-      field('Status', '<select id="f_status">' + ['draft', 'sent', 'accepted', 'declined'].map(function (s) {
-        return '<option' + (q.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>') +
-      '<div class="btn-row"><button class="btn" onclick="MF.saveQuote(\'' + (q.id || '') + '\')">Save</button>' +
-      (q.id ? '<button class="btn danger" onclick="MF.delQuote(\'' + q.id + '\')">Delete</button>' : '') + '</div>' +
-      '<button class="btn secondary" onclick="MF.close()">Cancel</button>');
+      field('Status', statusSelect('f_status', q.status || 'draft', ['draft', 'sent', 'accepted', 'declined'])) +
+      formBtns('MF.saveQuote', q.id));
   }
 
   function customerForm(c) {
     c = c || {};
     var jobs = c.id ? DB.jobs.filter(function (j) { return j.customerId === c.id; }) : [];
+    var hist = jobs.length ? '<div class="section-title">Job history</div>' + jobs.map(function (j) {
+      return '<div class="card"><b>' + esc(j.title || 'Job') + '</b><div class="muted">' +
+        fmtDate(j.date) + (j.price ? ' - ' + money(j.price) : '') + '</div></div>'; }).join('') : '';
     openSheet('<h2>' + (c.id ? esc(c.name) : 'New Customer') + '</h2>' +
       field('Name', inp('f_name', c.name, 'Full name')) +
       field('Phone', inp('f_phone', c.phone, '(305) 555-0100', 'tel')) +
       field('Address', inp('f_address', c.address, 'Street address')) +
-...[truncated 5810 chars]
+      field('Notes', '<textarea id="f_notes">' + esc(c.notes) + '</textarea>') + hist +
+      formBtns('MF.saveCustomer', c.id));
+  }
+
+  function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+  function currentTab() { var a = document.querySelector('#tabs button.active'); return a ? a.dataset.tab : 'today'; }
+
+  window.MF = {
+    close: closeSheet,
+    newJob: function () { jobForm(); },
+    editJob: function (id) { jobForm(DB.jobs.find(function (j) { return j.id === id; })); },
+    saveJob: function (id) {
+      var title = val('f_title'); if (!title) { toast('Give the job a title'); return; }
+      var rec = { title: title, customerId: val('f_customer'), address: val('f_address'),
+        date: val('f_date'), time: val('f_time'), price: Number(val('f_price')) || 0,
+        status: val('f_status'), notes: val('f_notes') };
+      if (id) { var j = DB.jobs.find(function (x) { return x.id === id; }); for (var k in rec) j[k] = rec[k]; }
+      else { rec.id = uid('j'); DB.jobs.push(rec); }
+      persist(); closeSheet(); render(currentTab()); toast('Job saved');
+    },
+    delJob: function (id) {
+      if (!confirm('Delete this job?')) return;
+      DB.jobs = DB.jobs.filter(function (j) { return j.id !== id; });
+      persist(); closeSheet(); render(currentTab()); toast('Job deleted');
+    },
+    newQuote: function () { quoteForm(); },
+    editQuote: function (id) { quoteForm(DB.quotes.find(function (q) { return q.id === id; })); },
+    addItem: function () {
+      var box = document.getElementById('f_items');
+      var i = box.children.length;
+      var div = document.createElement('div'); div.className = 'item-row';
+      div.innerHTML = '<input data-i="' + i + '" data-k="desc" placeholder="Description">' +
+        '<input data-i="' + i + '" data-k="amount" type="number" placeholder="$">';
+      box.appendChild(div);
+    },
+    saveQuote: function (id) {
+      var title = val('f_title'); if (!title) { toast('Give the quote a title'); return; }
+      var items = [];
+      document.querySelectorAll('#f_items .item-row').forEach(function (row) {
+        var d = row.querySelector('[data-k="desc"]').value.trim();
+        var a = Number(row.querySelector('[data-k="amount"]').value) || 0;
+        if (d || a) items.push({ desc: d, amount: a });
+      });
+      if (!items.length) { toast('Add at least one line item'); return; }
+      var rec = { title: title, customerId: val('f_customer'), items: items,
+        status: val('f_status'), created: todayStr() };
+      if (id) { var q = DB.quotes.find(function (x) { return x.id === id; });
+        for (var k in rec) { if (k !== 'created') q[k] = rec[k]; } }
+      else { rec.id = uid('q'); DB.quotes.push(rec); }
+      persist(); closeSheet(); render(currentTab()); toast('Quote saved');
+    },
+    delQuote: function (id) {
+      if (!confirm('Delete this quote?')) return;
+      DB.quotes = DB.quotes.filter(function (q) { return q.id !== id; });
+      persist(); closeSheet(); render(currentTab()); toast('Quote deleted');
+    },
+    newCustomer: function () { customerForm(); },
+    editCustomer: function (id) { customerForm(DB.customers.find(function (c) { return c.id === id; })); },
+    saveCustomer: function (id) {
+      var name = val('f_name'); if (!name) { toast('Give the customer a name'); return; }
+      var rec = { name: name, phone: val('f_phone'), address: val('f_address'), notes: val('f_notes') };
+      if (id) { var c = DB.customers.find(function (x) { return x.id === id; }); for (var k in rec) c[k] = rec[k]; }
+      else { rec.id = uid('c'); DB.customers.push(rec); }
+      persist(); closeSheet(); render(currentTab()); toast('Customer saved');
+    },
+    delCustomer: function (id) {
+      if (!confirm('Delete this customer and their jobs?')) return;
+      DB.customers = DB.customers.filter(function (c) { return c.id !== id; });
+      DB.jobs = DB.jobs.filter(function (j) { return j.customerId !== id; });
+      DB.quotes = DB.quotes.filter(function (q) { return q.customerId !== id; });
+      persist(); closeSheet(); render(currentTab()); toast('Customer deleted');
+    },
+    backupSheet: function () {
+      openSheet('<h2>Backup / Restore</h2>' +
+        '<p class="muted">Your data lives on this phone. Download a backup now and then so you never lose it.</p>' +
+        '<button class="btn" onclick="MF.backup()">Download backup</button>' +
+        '<label>Restore from file</label><input type="file" accept=".json" onchange="MF.restore(this)">' +
+        '<button class="btn secondary" onclick="MF.close()">Close</button>');
+    },
+    backup: function () {
+      var blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'miami-fixes-backup-' + todayStr() + '.json';
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 500);
+      toast('Backup downloaded');
+    },
+    restore: function (input) {
+      var f = input.files && input.files[0]; if (!f) return;
+      var r = new FileReader();
+      r.onload = function () {
+        try {
+          var d = JSON.parse(r.result);
+          if (!d.customers || !d.jobs || !d.quotes) throw 0;
+          DB = d; persist(); render(currentTab()); toast('Backup restored');
+        } catch (e) { toast('That file is not a valid backup'); }
+      };
+      r.readAsText(f); input.value = '';
+    }
+  };
+
+  render('today');
+})();
