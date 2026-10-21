@@ -405,14 +405,27 @@
       } catch (e) { toast('Could not enable notifications'); }
     },
     testBuzz: async function () {
+      var lines = [];
+      lines.push('Push API: ' + (('PushManager' in window) ? 'yes' : 'MISSING'));
+      lines.push('Notification perm: ' + (('Notification' in window) ? Notification.permission : 'no API'));
       try {
-        if (!('serviceWorker' in navigator)) { toast("This browser can't do push"); return; }
-        var reg = await navigator.serviceWorker.ready;
+        if (!('serviceWorker' in navigator)) throw new Error('no service worker');
+        var reg = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise(function (_, rej) { setTimeout(function () { rej(new Error('SW not ready (timeout)')); }, 5000); })
+        ]);
+        lines.push('Service worker: ready');
+        var sub = await reg.pushManager.getSubscription();
+        lines.push('Push subscription: ' + (sub ? 'ACTIVE' : 'none yet'));
         await reg.showNotification('🔧 Test buzz', {
           body: 'If you see this, notifications work on your phone.',
           icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'mfhq-test' });
-        toast('Test sent — did it buzz?');
-      } catch (e) { toast('Could not show the test'); }
+        lines.push('Test notification: SENT');
+      } catch (e) { lines.push('PROBLEM: ' + e.message); }
+      openSheet('<h2>Buzz test result</h2>' +
+        lines.map(function (l) { return '<div class="card">' + esc(l) + '</div>'; }).join('') +
+        '<p class="muted">Read me what it says, or screenshot it.</p>' +
+        '<button class="btn secondary" onclick="MF.close()">Close</button>');
     }
   };
 
