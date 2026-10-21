@@ -2,6 +2,8 @@
 (function () {
   'use strict';
   var KEY = 'mfhq_v1';
+  var WORKER_URL = 'https://aldo-push.aldojjriveron.workers.dev'; // push server — live
+  var VAPID_PUBLIC = 'BHiXPBXPBCUByybEGpRqjA2c-CjcqbdpEGFL_WAl8SyNF6t9akzF0hcen_wGEtmWs7Y31c_LiOIU1-cf5Hx4Ns4';
 
   function uid(p) { return p + Math.random().toString(36).slice(2, 9); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -88,6 +90,7 @@
       openQuotes.length + '</b></div><div class="row"><span>Customers</span><b>' + DB.customers.length +
       '</b></div></div>';
     h += '<button class="btn" onclick="MF.newJob()">+ New Job</button>';
+    h += '<button class="btn secondary" onclick="MF.enablePush()">🔔 Enable notifications</button>';
     h += '<button class="btn secondary" onclick="MF.backupSheet()">Backup / Restore</button>';
     screen.innerHTML = h;
   }
@@ -207,6 +210,44 @@
   function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
   function currentTab() { var a = document.querySelector('#tabs button.active'); return a ? a.dataset.tab : 'today'; }
 
+  /* ---------- Push notifications (shared push server) ---------- */
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+  function urlB64ToU8(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function jobEpoch(j) {
+    if (!j.date) return 0;
+    var t = new Date(j.date + 'T' + (j.time || '09:00') + ':00').getTime();
+    return isNaN(t) ? 0 : t;
+  }
+  async function syncPushReminders() {
+    try {
+      var subRaw = localStorage.getItem('mfhq_push_sub');
+      if (!subRaw || WORKER_URL.indexOf('REPLACE_ME') !== -1) return;
+      var sub = JSON.parse(subRaw);
+      var now = Date.now(), out = [];
+      DB.jobs.forEach(function (j) {
+        if (j.status === 'done') return;
+        var ts = jobEpoch(j);
+        if (!ts || ts <= now) return;
+        var label = (j.title || 'Job') + ' — ' + custName(j.customerId);
+        if (ts - 24 * 3600 * 1000 > now) out.push({ id: j.id + '-24h', title: '🔧 Tomorrow: ' + (j.title || 'Job'),
+          body: custName(j.customerId) + ' · ' + fmtDate(j.date) + (j.time ? ' ' + j.time : ''), at: ts - 24 * 3600 * 1000 });
+        if (ts - 30 * 60 * 1000 > now) out.push({ id: j.id + '-30m', title: '🔧 Starting soon: ' + (j.title || 'Job'),
+          body: label + (j.address ? ' · ' + j.address : ''), at: ts - 30 * 60 * 1000 });
+      });
+      await fetch(WORKER_URL + '/reminders', { method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ endpoint: sub.endpoint, reminders: out }) });
+    } catch (e) {}
+  }
+
   /* ---------- Add to iPhone Calendar (.ics) ---------- */
   function parseTime(t) {
     var m = String(t || '09:00').trim().match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
@@ -250,11 +291,13 @@
       if (id) { var j = DB.jobs.find(function (x) { return x.id === id; }); for (var k in rec) j[k] = rec[k]; }
       else { rec.id = uid('j'); DB.jobs.push(rec); }
       persist(); closeSheet(); render(currentTab()); toast('Job saved');
+      syncPushReminders();
     },
     delJob: function (id) {
       if (!confirm('Delete this job?')) return;
       DB.jobs = DB.jobs.filter(function (j) { return j.id !== id; });
       persist(); closeSheet(); render(currentTab()); toast('Job deleted');
+      syncPushReminders();
     },
     cal: function (id) {
       var j = DB.jobs.find(function (x) { return x.id === id; });
@@ -332,8 +375,7 @@
       setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 500);
       toast('Backup downloaded');
     },
-    restore: function (input) {
-      var f = input.files && input.files[0]; if (!f) return;
+    restore: function (input) {      var f = input.files && input.files[0]; if (!f) return;
       var r = new FileReader();
       r.onload = function () {
         try {
@@ -343,6 +385,23 @@
         } catch (e) { toast('That file is not a valid backup'); }
       };
       r.readAsText(f); input.value = '';
+    },
+    enablePush: async function () {
+      try {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) { toast("This browser can't do push"); return; }
+        if (WORKER_URL.indexOf('REPLACE_ME') !== -1) { toast('Push server not connected yet'); return; }
+        var perm = await Notification.requestPermission();
+        if (perm !== 'granted') { toast('Allow notifications in Settings'); return; }
+        var reg = await navigator.serviceWorker.ready;
+        var sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToU8(VAPID_PUBLIC) });
+        localStorage.setItem('mfhq_push_sub', JSON.stringify(sub));
+        await fetch(WORKER_URL + '/subscribe', { method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ subscription: sub, label: "Aldo's iPhone" }) });
+        await syncPushReminders();
+        toast("Notifications on — I'll buzz you");
+        render(currentTab());
+      } catch (e) { toast('Could not enable notifications'); }
     }
   };
 
