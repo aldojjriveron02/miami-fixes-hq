@@ -91,6 +91,7 @@
       '</b></div></div>';
     h += '<button class="btn" onclick="MF.newJob()">+ New Job</button>';
     h += '<button class="btn secondary" onclick="MF.enablePush()">🔔 Enable notifications</button>';
+    h += '<button class="btn secondary" onclick="MF.testBuzz()">🔔 Test buzz</button>';
     h += '<button class="btn secondary" onclick="MF.backupSheet()">Backup / Restore</button>';
     screen.innerHTML = h;
   }
@@ -402,6 +403,16 @@
         toast("Notifications on — I'll buzz you");
         render(currentTab());
       } catch (e) { toast('Could not enable notifications'); }
+    },
+    testBuzz: async function () {
+      try {
+        if (!('serviceWorker' in navigator)) { toast("This browser can't do push"); return; }
+        var reg = await navigator.serviceWorker.ready;
+        await reg.showNotification('🔧 Test buzz', {
+          body: 'If you see this, notifications work on your phone.',
+          icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'mfhq-test' });
+        toast('Test sent — did it buzz?');
+      } catch (e) { toast('Could not show the test'); }
     }
   };
 
