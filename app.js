@@ -24,16 +24,33 @@
       ],
       jobs: [],
       quotes: [
-        { id: uid('q'), customerId: c1, title: 'Ductwork replacement', status: 'sent',
-          created: '2026-10-17', items: [{ desc: 'Ductwork replacement — flat quote', amount: 5500 }] },
-        { id: uid('q'), customerId: c1, title: 'Insulation', status: 'accepted',
-          created: '2026-10-17', items: [{ desc: 'Insulation — flat quote', amount: 1981 }] }
+        { id: uid('q'), number: 'Q-001', customerId: c1, title: 'Ductwork replacement', status: 'sent',
+          created: '2026-10-17', validUntil: '2026-11-16', deposit: 0,
+          items: [{ desc: 'Ductwork replacement — flat quote', amount: 5500 }] },
+        { id: uid('q'), number: 'Q-002', customerId: c1, title: 'Insulation', status: 'accepted',
+          created: '2026-10-17', validUntil: '2026-11-16', deposit: 0,
+          items: [{ desc: 'Insulation — flat quote', amount: 1981 }] }
       ]
     };
   }
   function load() {
-    try { var raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {}
+    try { var raw = localStorage.getItem(KEY); if (raw) { var d = JSON.parse(raw); migrate(d); return d; } } catch (e) {}
     var s = seed(); save(s); return s;
+  }
+  function addDays(ds, n) { var p = String(ds || todayStr()).split('-');
+    var d = new Date(+p[0], +p[1] - 1, +p[2]); d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function nextQuoteNumber(d) { var mx = 0;
+    d.quotes.forEach(function (q) { var m = /^Q-(\d+)$/.exec(q.number || ''); if (m) mx = Math.max(mx, +m[1]); });
+    return 'Q-' + String(mx + 1).padStart(3, '0'); }
+  function migrate(d) {
+    var changed = false;
+    d.quotes.forEach(function (q) {
+      if (!q.number) { q.number = nextQuoteNumber(d); changed = true; }
+      if (!q.validUntil) { q.validUntil = addDays(q.created, 30); changed = true; }
+      if (q.deposit == null) { q.deposit = 0; changed = true; }
+    });
+    if (changed) save(d);
   }
   function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); }
     catch (e) { toast('Storage full — export a backup!'); } }
@@ -57,6 +74,18 @@
   function custName(id) { var c = DB.customers.find(function (x) { return x.id === id; });
     return c ? c.name : '—'; }
   function quoteTotal(q) { return q.items.reduce(function (s, it) { return s + (Number(it.amount) || 0); }, 0); }
+  function quoteText(q) {
+    var lines = ['Miami Fixes — Quote ' + (q.number || '')];
+    lines.push(q.title || 'Quote');
+    if (q.customerId) lines.push('Customer: ' + custName(q.customerId));
+    lines.push('----------------');
+    q.items.forEach(function (it) { lines.push((it.desc || 'Item') + '  ' + money(it.amount)); });
+    lines.push('----------------');
+    lines.push('Total: ' + money(quoteTotal(q)));
+    if (Number(q.deposit)) lines.push('Deposit: ' + money(q.deposit));
+    if (q.validUntil) lines.push('Valid until: ' + fmtDate(q.validUntil));
+    return lines.join('\n');
+  }
 
   var tabBtns = document.querySelectorAll('#tabs button');
   tabBtns.forEach(function (b) { b.addEventListener('click', function () {
@@ -122,7 +151,7 @@
       return '<div class="card" onclick="MF.editQuote(\'' + q.id + '\')">' +
         '<div class="row"><h3>' + esc(q.title || 'Quote') + '</h3>' +
         '<span class="pill ' + q.status + '">' + q.status + '</span></div>' +
-        '<div class="muted">' + esc(custName(q.customerId)) + ' - ' + fmtDate(q.created) + '</div>' +
+        '<div class="muted">' + esc(q.number || '') + ' · ' + esc(custName(q.customerId)) + ' - ' + fmtDate(q.created) + '</div>' +
         '<div class="money">' + money(quoteTotal(q)) + '</div></div>';
     }).join('') : '<div class="card muted">No quotes yet.</div>';
     screen.innerHTML = h;
@@ -186,12 +215,16 @@
         '" placeholder="Description"><input data-i="' + i + '" data-k="amount" type="number" value="' +
         esc(it.amount) + '" placeholder="$"></div>'; }).join('');
     openSheet('<h2>' + (q.id ? 'Edit Quote' : 'New Quote') + '</h2>' +
+      (q.id || q.number ? '<div class="muted">Quote ' + esc(q.number || nextQuoteNumber(DB)) + '</div>' : '') +
       field('Title', inp('f_title', q.title, 'e.g. Ductwork quote')) +
       field('Customer', customerSelect('f_customer', q.customerId)) +
       field('Line items', '<div id="f_items">' + itemsHtml + '</div>' +
         '<button class="btn small secondary" onclick="MF.addItem()">+ Add line</button>') +
+      field('Deposit ($, optional)', inp('f_deposit', q.deposit || '', '0', 'number')) +
+      field('Valid until', inp('f_valid', q.validUntil || addDays(todayStr(), 30), '', 'date')) +
       field('Status', statusSelect('f_status', q.status || 'draft', ['draft', 'sent', 'accepted', 'declined'])) +
-      formBtns('MF.saveQuote', q.id));
+      formBtns('MF.saveQuote', q.id) +
+      (q.id ? '<button class="btn secondary" onclick="MF.shareQuote(\'' + q.id + '\')">📤 Share quote</button>' : ''));
   }
 
   function customerForm(c) {
@@ -333,16 +366,35 @@
       });
       if (!items.length) { toast('Add at least one line item'); return; }
       var rec = { title: title, customerId: val('f_customer'), items: items,
-        status: val('f_status'), created: todayStr() };
+        status: val('f_status'), created: todayStr(),
+        deposit: Number(val('f_deposit')) || 0, validUntil: val('f_valid') || addDays(todayStr(), 30) };
       if (id) { var q = DB.quotes.find(function (x) { return x.id === id; });
-        for (var k in rec) { if (k !== 'created') q[k] = rec[k]; } }
-      else { rec.id = uid('q'); DB.quotes.push(rec); }
+        for (var k in rec) { if (k !== 'created' && k !== 'number') q[k] = rec[k]; }
+        if (!q.number) q.number = nextQuoteNumber(DB);
+      }
+      else { rec.id = uid('q'); rec.number = nextQuoteNumber(DB); DB.quotes.push(rec); }
       persist(); closeSheet(); render(currentTab()); toast('Quote saved');
     },
     delQuote: function (id) {
       if (!confirm('Delete this quote?')) return;
       DB.quotes = DB.quotes.filter(function (q) { return q.id !== id; });
       persist(); closeSheet(); render(currentTab()); toast('Quote deleted');
+    },
+    shareQuote: function (id) {
+      var q = DB.quotes.find(function (x) { return x.id === id; });
+      if (!q) return;
+      var text = quoteText(q);
+      function copied() { toast('Quote copied — paste it in a text'); }
+      if (navigator.share) {
+        navigator.share({ text: text }).catch(function () {});
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(copied, copied);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta); copied();
+      }
     },
     newCustomer: function () { customerForm(); },
     editCustomer: function (id) { customerForm(DB.customers.find(function (c) { return c.id === id; })); },
