@@ -407,7 +407,11 @@
     testBuzz: async function () {
       var lines = [];
       lines.push('Push API: ' + (('PushManager' in window) ? 'yes' : 'MISSING'));
-      lines.push('Notification perm: ' + (('Notification' in window) ? Notification.permission : 'no API'));
+      var perm = (('Notification' in window) ? Notification.permission : 'no API');
+      if (perm === 'default') {
+        try { perm = await Notification.requestPermission(); } catch (e) {}
+      }
+      lines.push('Notification perm: ' + perm);
       try {
         if (!('serviceWorker' in navigator)) throw new Error('no service worker');
         var reg = await Promise.race([
