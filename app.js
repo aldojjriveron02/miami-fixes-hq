@@ -152,7 +152,15 @@
     if (upcoming.length) h += '<div class="section-title">Coming up</div>' + upcoming.map(jobCard).join('');
     h += '<div class="section-title">At a glance</div><div class="card"><div class="row"><span>Open quotes</span><b>' +
       openQuotes.length + '</b></div><div class="row"><span>Customers</span><b>' + DB.customers.length +
-      '</b></div></div>';
+      '</b></div>';
+    var monthPrefix = todayStr().slice(0, 7);
+    var earnedMonth = DB.jobs.filter(function (j) { return j.status === 'done' && j.paid && (j.date || '').indexOf(monthPrefix) === 0; })
+      .reduce(function (s, j) { return s + (Number(j.price) || 0); }, 0);
+    var doneMonth = DB.jobs.filter(function (j) { return j.status === 'done' && (j.date || '').indexOf(monthPrefix) === 0; }).length;
+    h += '<div class="row"><span>💰 Earned this month</span><b>' + money(earnedMonth) + '</b></div>' +
+      '<div class="row"><span>Jobs done this month</span><b>' + doneMonth + '</b></div>' +
+      (unpaidTotal > 0 ? '<div class="row"><span>💰 Owed to you</span><b>' + money(unpaidTotal) + '</b></div>' : '') +
+      '</div>';
     h += '<button class="btn" onclick="MF.newJob()">+ New Job</button>';
     h += '<button class="btn secondary" onclick="MF.enablePush()">🔔 Enable notifications</button>';
     h += '<button class="btn secondary" onclick="MF.testBuzz()">🔔 Test buzz</button>';
