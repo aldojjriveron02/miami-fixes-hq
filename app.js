@@ -521,6 +521,9 @@
     editCustomer: function (id) { customerForm(DB.customers.find(function (c) { return c.id === id; })); },
     saveCustomer: function (id) {
       var name = val('f_name'); if (!name) { toast('Give the customer a name'); return; }
+      var dupe = DB.customers.find(function (c) {
+        return c.name.toLowerCase() === name.toLowerCase() && c.id !== id; });
+      if (dupe && !confirm('You already have a customer named "' + dupe.name + '". Save anyway?')) return;
       var rec = { name: name, phone: val('f_phone'), address: val('f_address'), notes: val('f_notes') };
       if (id) { var c = DB.customers.find(function (x) { return x.id === id; }); for (var k in rec) c[k] = rec[k]; }
       else { rec.id = uid('c'); DB.customers.push(rec); }
