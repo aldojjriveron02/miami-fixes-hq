@@ -112,9 +112,26 @@
     var upcoming = DB.jobs.filter(function (j) { return j.date && j.date > t && j.status !== 'done'; })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; }).slice(0, 5);
     var openQuotes = DB.quotes.filter(function (q) { return q.status === 'sent' || q.status === 'draft'; });
+    var unpaidJobs = DB.jobs.filter(function (j) { return j.status === 'done' && !j.paid && Number(j.price) > 0; });
+    var unpaidTotal = unpaidJobs.reduce(function (s, j) { return s + (Number(j.price) || 0); }, 0);
     var staleQuotes = DB.quotes.filter(function (q) {
       return q.status === 'sent' && q.created && q.created <= addDays(todayStr(), -3); });
     var h = '';
+    if (unpaidJobs.length) {
+      h += '<div class="section-title">💰 Owed to you: ' + money(unpaidTotal) + '</div>' + unpaidJobs.map(function (j) {
+        var c = DB.customers.find(function (x) { return x.id === j.customerId; });
+        var tel = c && c.phone ? c.phone.replace(/[^+\d]/g, '') : '';
+        return '<div class="card" onclick="MF.editJob(\'' + j.id + '\')"><div class="row"><h3>' +
+          esc(j.title || 'Job') + '</h3><span class="pill overdue">unpaid</span></div>' +
+          '<div class="muted">' + esc(c ? c.name : '—') + ' · ' + fmtDate(j.date) + '</div>' +
+          '<div class="money">' + money(j.price) + '</div>' +
+          (tel ? '<div class="btn-row"><a class="btn" href="tel:' + esc(tel) + '" onclick="event.stopPropagation()">📞 Call</a>' +
+            '<a class="btn secondary" href="sms:' + esc(tel) + '?&body=' +
+            encodeURIComponent('Hey ' + (c ? c.name : 'there') + ', it\'s Aldo from Miami Fixes — just a friendly nudge on the balance of ' +
+              money(j.price) + ' for the work done ' + fmtDate(j.date) + '. Let me know when you can take care of it. Thanks! — Aldo') +
+            '" onclick="event.stopPropagation()">💬 Nudge</a></div>' : '') + '</div>';
+      }).join('');
+    }
     if (staleQuotes.length) {
       h += '<div class="section-title">📞 Follow up (' + staleQuotes.length + ')</div>' + staleQuotes.map(function (q) {
         var c = DB.customers.find(function (x) { return x.id === q.customerId; });
@@ -225,7 +242,9 @@
       field('Notes', '<textarea id="f_notes">' + esc(j.notes) + '</textarea>') +
       formBtns('MF.saveJob', j.id) +
       (j.id ? '<button class="btn secondary" onclick="MF.cal(\'' + j.id + '\')">📅 Add to iPhone Calendar</button>' : '') +
-      (j.id && j.status === 'done' ? '<button class="btn" onclick="MF.askReview(\'' + j.id + '\')">⭐ Ask for Google review</button>' : ''));
+      (j.id && j.status === 'done' ? '<button class="btn" onclick="MF.askReview(\'' + j.id + '\')">⭐ Ask for Google review</button>' : '') +
+      (j.id && j.status === 'done' && !j.paid ? '<button class="btn" onclick="MF.markPaid(\'' + j.id + '\')">💰 Mark paid</button>' : '') +
+      (j.id && j.status === 'done' && j.paid ? '<div class="card"><b>💰 Paid</b></div>' : ''));
   }
 
   function quoteForm(q) {
@@ -380,6 +399,11 @@
       if (!DB.settings) DB.settings = {};
       DB.settings.reviewLink = val('f_reviewlink');
       persist(); closeSheet(); toast('Settings saved');
+    },
+    markPaid: function (id) {
+      var j = DB.jobs.find(function (x) { return x.id === id; });
+      if (!j) return;
+      j.paid = true; persist(); closeSheet(); render(currentTab()); toast('Marked paid 💰');
     },
     cal: function (id) {
       var j = DB.jobs.find(function (x) { return x.id === id; });
