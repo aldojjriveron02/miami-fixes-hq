@@ -358,13 +358,27 @@
     editJob: function (id) { jobForm(DB.jobs.find(function (j) { return j.id === id; })); },
     saveJob: function (id) {
       var title = val('f_title'); if (!title) { toast('Give the job a title'); return; }
+      var wasDone = false;
+      if (id) { var ex = DB.jobs.find(function (x) { return x.id === id; }); wasDone = !!(ex && ex.status === 'done'); }
       var rec = { title: title, customerId: val('f_customer'), address: val('f_address'),
         date: val('f_date'), time: val('f_time'), price: Number(val('f_price')) || 0,
         status: val('f_status'), notes: val('f_notes') };
+      var savedId = id;
       if (id) { var j = DB.jobs.find(function (x) { return x.id === id; }); for (var k in rec) j[k] = rec[k]; }
-      else { rec.id = uid('j'); DB.jobs.push(rec); }
-      persist(); closeSheet(); render(currentTab()); toast('Job saved');
+      else { rec.id = uid('j'); DB.jobs.push(rec); savedId = rec.id; }
+      persist(); closeSheet(); render(currentTab());
       syncPushReminders();
+      if (rec.status === 'done' && !wasDone) {
+        var c = DB.customers.find(function (x) { return x.id === rec.customerId; });
+        var cname = c ? c.name : 'the customer';
+        openSheet('<h2>Job done! 🎉</h2>' +
+          '<p>Want to ask ' + esc(cname) + ' for a Google review right now? ' +
+          'This is when they\'re most likely to say yes.</p>' +
+          '<div class="btn-row"><button class="btn" onclick="MF.askReview(\'' + savedId + '\')">⭐ Yes, text them</button></div>' +
+          '<button class="btn secondary" onclick="MF.close()">Not now</button>');
+      } else {
+        toast('Job saved');
+      }
     },
     delJob: function (id) {
       if (!confirm('Delete this job?')) return;
