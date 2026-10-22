@@ -263,7 +263,8 @@
       field('Valid until', inp('f_valid', q.validUntil || addDays(todayStr(), 30), '', 'date')) +
       field('Status', statusSelect('f_status', q.status || 'draft', ['draft', 'sent', 'accepted', 'declined'])) +
       formBtns('MF.saveQuote', q.id) +
-      (q.id ? '<button class="btn secondary" onclick="MF.shareQuote(\'' + q.id + '\')">📤 Share quote</button>' : ''));
+      (q.id ? '<button class="btn secondary" onclick="MF.shareQuote(\'' + q.id + '\')">📤 Share quote</button>' : '') +
+      (q.id && q.status === 'accepted' ? '<button class="btn" onclick="MF.quoteToJob(\'' + q.id + '\')">🔧 Create job from this quote</button>' : ''));
   }
 
   function customerForm(c) {
@@ -465,6 +466,18 @@
       if (!confirm('Delete this quote?')) return;
       DB.quotes = DB.quotes.filter(function (q) { return q.id !== id; });
       persist(); closeSheet(); render(currentTab()); toast('Quote deleted');
+    },
+    quoteToJob: function (id) {
+      var q = DB.quotes.find(function (x) { return x.id === id; });
+      if (!q) return;
+      var rec = { id: uid('j'), title: q.title, customerId: q.customerId,
+        date: todayStr(), time: '09:00', price: quoteTotal(q),
+        status: 'scheduled', notes: 'From quote ' + (q.number || '') };
+      DB.jobs.push(rec);
+      persist(); closeSheet(); render(currentTab());
+      toast('Job created from quote');
+      syncPushReminders();
+      jobForm(DB.jobs.find(function (x) { return x.id === rec.id; }));
     },
     shareQuote: function (id) {
       var q = DB.quotes.find(function (x) { return x.id === id; });
