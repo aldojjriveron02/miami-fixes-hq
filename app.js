@@ -19,6 +19,7 @@
   function seed() {
     var c1 = uid('c');
     return {
+      settings: { reviewLink: '' },
       customers: [
         { id: c1, name: 'Steave', phone: '(305) 490-5626', address: '8820 SW 54th St', notes: 'Accepted insulation 10/17.' }
       ],
@@ -45,6 +46,7 @@
     return 'Q-' + String(mx + 1).padStart(3, '0'); }
   function migrate(d) {
     var changed = false;
+    if (!d.settings) { d.settings = { reviewLink: '' }; changed = true; }
     d.quotes.forEach(function (q) {
       if (!q.number) { q.number = nextQuoteNumber(d); changed = true; }
       if (!q.validUntil) { q.validUntil = addDays(q.created, 30); changed = true; }
@@ -110,7 +112,23 @@
     var upcoming = DB.jobs.filter(function (j) { return j.date && j.date > t && j.status !== 'done'; })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; }).slice(0, 5);
     var openQuotes = DB.quotes.filter(function (q) { return q.status === 'sent' || q.status === 'draft'; });
+    var staleQuotes = DB.quotes.filter(function (q) {
+      return q.status === 'sent' && q.created && q.created <= addDays(todayStr(), -3); });
     var h = '';
+    if (staleQuotes.length) {
+      h += '<div class="section-title">📞 Follow up (' + staleQuotes.length + ')</div>' + staleQuotes.map(function (q) {
+        var c = DB.customers.find(function (x) { return x.id === q.customerId; });
+        var tel = c && c.phone ? c.phone.replace(/[^+\d]/g, '') : '';
+        return '<div class="card"><div class="row"><h3>' + esc(q.title || 'Quote') + '</h3>' +
+          '<span class="pill sent">needs follow-up</span></div>' +
+          '<div class="muted">' + esc(q.number || '') + ' · ' + esc(c ? c.name : '—') + ' · sent ' + fmtDate(q.created) + '</div>' +
+          '<div class="money">' + money(quoteTotal(q)) + '</div>' +
+          (tel ? '<div class="btn-row"><a class="btn" href="tel:' + esc(tel) + '">📞 Call</a>' +
+            '<a class="btn secondary" href="sms:' + esc(tel) + '?&body=' +
+            encodeURIComponent('Hey ' + (c ? c.name : 'there') + ', it\'s Aldo from Miami Fixes — just checking in on the quote I sent. Still interested? Happy to answer any questions. — Aldo') +
+            '">💬 Text</a></div>' : '<div class="muted">No phone on file</div>') + '</div>';
+      }).join('');
+    }
     if (overdue.length) h += '<div class="section-title">Overdue (' + overdue.length + ')</div>' + overdue.map(jobCard).join('');
     h += '<div class="section-title">Today (' + todays.length + ')</div>';
     h += todays.length ? todays.map(jobCard).join('') : '<div class="card muted">Nothing scheduled today.</div>';
@@ -122,6 +140,7 @@
     h += '<button class="btn secondary" onclick="MF.enablePush()">🔔 Enable notifications</button>';
     h += '<button class="btn secondary" onclick="MF.testBuzz()">🔔 Test buzz</button>';
     h += '<button class="btn secondary" onclick="MF.backupSheet()">Backup / Restore</button>';
+    h += '<button class="btn secondary" onclick="MF.settingsSheet()">⚙️ Settings</button>';
     screen.innerHTML = h;
   }
   function jobCard(j) {
@@ -205,7 +224,8 @@
       field('Status', statusSelect('f_status', j.status || 'scheduled', ['scheduled', 'in-progress', 'done'])) +
       field('Notes', '<textarea id="f_notes">' + esc(j.notes) + '</textarea>') +
       formBtns('MF.saveJob', j.id) +
-      (j.id ? '<button class="btn secondary" onclick="MF.cal(\'' + j.id + '\')">📅 Add to iPhone Calendar</button>' : ''));
+      (j.id ? '<button class="btn secondary" onclick="MF.cal(\'' + j.id + '\')">📅 Add to iPhone Calendar</button>' : '') +
+      (j.id && j.status === 'done' ? '<button class="btn" onclick="MF.askReview(\'' + j.id + '\')">⭐ Ask for Google review</button>' : ''));
   }
 
   function quoteForm(q) {
@@ -332,6 +352,34 @@
       DB.jobs = DB.jobs.filter(function (j) { return j.id !== id; });
       persist(); closeSheet(); render(currentTab()); toast('Job deleted');
       syncPushReminders();
+    },
+    askReview: function (id) {
+      var j = DB.jobs.find(function (x) { return x.id === id; });
+      if (!j) return;
+      var c = DB.customers.find(function (x) { return x.id === j.customerId; });
+      if (!c || !c.phone) { toast('Add a phone number for this customer first'); return; }
+      var link = (DB.settings && DB.settings.reviewLink) || '';
+      var msg = 'Hey ' + c.name + ', it\'s Aldo from Miami Fixes — thanks for the business today! ' +
+        'If you were happy with the work, a Google review would mean a lot. ' +
+        (link ? 'Here\'s the link: ' + link : 'Just search "Miami Fixes" on Google and hit the review button. ') +
+        'Thanks again! 🔧';
+      var tel = c.phone.replace(/[^+\d]/g, '');
+      window.location.href = 'sms:' + tel + '?&body=' + encodeURIComponent(msg);
+    },
+    settingsSheet: function () {
+      var link = (DB.settings && DB.settings.reviewLink) || '';
+      openSheet('<h2>Settings</h2>' +
+        field('Google review link',
+          inp('f_reviewlink', link, 'Paste your Google review link here') +
+          '<p class="muted">Get it from your Google Business Profile: Ask for reviews, copy the link, paste it here. ' +
+          'After each job, tap "Ask for Google review" and this link goes out in the text.</p>') +
+        '<div class="btn-row"><button class="btn" onclick="MF.saveSettings()">Save</button></div>' +
+        '<button class="btn secondary" onclick="MF.close()">Close</button>');
+    },
+    saveSettings: function () {
+      if (!DB.settings) DB.settings = {};
+      DB.settings.reviewLink = val('f_reviewlink');
+      persist(); closeSheet(); toast('Settings saved');
     },
     cal: function (id) {
       var j = DB.jobs.find(function (x) { return x.id === id; });
