@@ -376,10 +376,24 @@
           '<p>Want to ask ' + esc(cname) + ' for a Google review right now? ' +
           'This is when they\'re most likely to say yes.</p>' +
           '<div class="btn-row"><button class="btn" onclick="MF.askReview(\'' + savedId + '\')">⭐ Yes, text them</button></div>' +
+          '<button class="btn secondary" onclick="MF.scheduleTuneup(\'' + savedId + '\')">📅 Tune-up reminder in 6 months</button>' +
           '<button class="btn secondary" onclick="MF.close()">Not now</button>');
       } else {
         toast('Job saved');
       }
+    },
+    scheduleTuneup: function (id) {
+      var j = DB.jobs.find(function (x) { return x.id === id; });
+      if (!j) return;
+      var c = DB.customers.find(function (x) { return x.id === j.customerId; });
+      var future = addDays(todayStr(), 180);
+      var rec = { id: uid('j'), title: 'AC tune-up — ' + (c ? c.name : (j.title || 'returning customer')),
+        customerId: j.customerId, address: j.address, date: future, time: '09:00',
+        price: 0, status: 'scheduled', notes: '6-month tune-up follow-up from job: ' + (j.title || '') + ' (' + fmtDate(j.date) + ')' };
+      DB.jobs.push(rec);
+      persist(); closeSheet(); render(currentTab());
+      toast('Tune-up scheduled for ' + fmtDate(future));
+      syncPushReminders();
     },
     delJob: function (id) {
       if (!confirm('Delete this job?')) return;
